@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html>
+<body>
+<meta charset="utf-8"/>
+
+<h1>Reputation Service Web App</h1>
+<p1>Paste one or more artifacts below, and click the button to analyze them.</p1>
+<div id="my_text_area"></div>
+<div id="my_button"></div>
+<div id="my_text"></div>
+
+<script type="text/javascript">
+
+    // Get from the company
+    var API_KEY = "";
+    var USER_GUID = "";
+    var BASE_URL = "";
+
+    // Temporary session ID from authentication
+    var session_id = "";
+    // If the program has already authenticated or not
+    var authenticated = 0;
+    // If the program already got the latest categories
+    var got_categories = 0;
+
+    // The number of artifacts being queried
+    var num_artifacts;
+
+    // The dictionary of latest categories
+    var all_cat_dict;
+
+    // Multiline text box for inputting URLs
+    var text_input = document.createElement("TEXTAREA");
+    text_input.setAttribute("type", "text");
+    my_text_area.appendChild(text_input);
+
+    // Action button
+    var action_button = document.createElement("button");
+    action_button.innerHTML = "Analyze";
+    action_button.addEventListener("click", button_callback);
+    my_button.appendChild(action_button);
+
+    // Get categories and authenticate (happens in parallel)
+    get_categories();
+    authenticate();
+
+    function button_callback(event)
+    {
+        var query_payload_artifacts = create_artifact_list();
+        var query_payload_json = {"urls": query_payload_artifacts};
+        var query_payload_string = JSON.stringify(query_payload_json);
+
+        if (authenticated == 1 && got_categories == 1)
+        {
+            query(query_payload_string, session_id);
+        }
+        // This should never appear unless the connection is really slow
+        else
+        {
+            console.log("Still waiting for the service");
+        }
+    }
+
+    function authenticate()
+    {
+        // Construct authentication request
+        var auth_payload_json = {"key": API_KEY, "user_guid": USER_GUID};
+        var auth_payload_string = JSON.stringify(auth_payload_json);
+
+        var auth_entry_point = "/api/auth";
+        var auth_url = BASE_URL + auth_entry_point;
+
+        var xhttp_auth = new XMLHttpRequest();
+
+        // Get authentication response
+        xhttp_auth.onreadystatechange = function()
+        {
+            if (this.readyState == 4 && this.status == 200)
+            {
+                var auth_response = this.responseText;
+                var auth_response_json = JSON.parse(auth_response);
+                session_id = auth_response_json.session;
+                console.log("Authenticated with session ID: " + session_id);
+                authenticated = 1;
+            }
+            else
+            {
+                console.log("Authentication response not ready yet");
+                console.log("Ready state: " + this.readyState);
+                console.log("Status: " + this.status);
+            }
+        };
+
+        // Send authentication request
+        xhttp_auth.open("POST", auth_url, true);
+        xhttp_auth.setRequestHeader("Content-Type", "application/json");
+        xhttp_auth.send(auth_payload_string);
+    }
+
+    function get_categories()
+    {
+        console.log("Getting updated categories");
+
+        // Construct category request
+        var cat_entry_point = "/api/categories?";
+        var cat_url = BASE_URL + cat_entry_point;
+
+        var xhttp_cat = new XMLHttpRequest();
+
+        // Get category response
+        xhttp_cat.onreadystatechange = function()
+        {
+            if (this.readyState == 4 && this.status == 200)
+            {
+                var cat_response = this.responseText;
+                var cat_response_json = JSON.parse(cat_response);
+                all_cat_dict = cat_response_json.categories;
+                console.log("Got updated categories");
+                got_categories = 1;
+            }
+            else
+            {
+                console.log("Category response not ready yet");
+                console.log("Ready state: " + this.readyState);
+                console.log("Status: " + this.status);
+            }
+        };
+
+        // Send cateogry request
+        xhttp_cat.open("GET", cat_url, true);
+        xhttp_cat.send(cat_url);
+    }
+
+    function query(my_query_payload_string)
+    {
+        // Construct query request
+        var query_entry_point = "/api/query";
+        var query_payload_string = my_query_payload_string;
+
+        var url_param = "?session=" + session_id;
+        var query_url = BASE_URL + query_entry_point + url_param;
+
+        var xhttp_query = new XMLHttpRequest();
+
+        // Get query response
+        xhttp_query.onreadystatechange = function() 
+        {
+            if (this.readyState == 4 && this.status == 200)
+            {
+                var query_response = this.responseText;
+                console.log("Service response: " + query_response);
+                parse_response(query_response);
+            }
+            else
+            {
+                console.log("Query response not ready yet");
+                console.log("Ready state: " + this.readyState);
+                console.log("Status: " + this.status);
+            }
+        };
+
+        // Send query request
+        xhttp_query.open("POST", query_url, true);
+        xhttp_query.setRequestHeader("Content-Type", "application/json");
+        xhttp_query.send(query_payload_string);
+    }
+
+    function create_artifact_list()
+    {
+        // Get contents of text area (box)
+        var box_value = document.getElementById("my_text_area").firstChild.value
+        // Split contents up into an array
+        var box_array = box_value.split("\n");
+
+        // The artifacts entered into the text area split up into a list
+        var artifact_list = [];
+
+        var i = 0;
+        for (i = 0; i < box_array.length; i++)
+        {
+            // Remove whitespaces and blank lines
+            if ((box_array[i].trim()) != "")
+                artifact_list.push(box_array[i].trim());
+        }
+
+        // Set global array length
+        num_artifacts = artifact_list.length;
+
+        return artifact_list;
+    }
+
+    // Map category number to its name
+    function map_category(cat_num)
+    {
+        var cat_name;
+        cat_name = all_cat_dict[cat_num]["name"];
+        return cat_name;
+    }
+
+    // Parse the service response and display a formatted output
+    function parse_response(query_response)
+    {
+        // Parse service response
+        var query_response_json = JSON.parse(query_response);
+
+        // An array of arrays, each is list of categories
+        response_cat_array = query_response_json.categories;
+
+        var artifact_list = create_artifact_list();
+
+        // Final string that will be displayed for the user
+        var output_string = "";
+        var i = 0;
+        var j = 0;
+        for (i = 0; i < num_artifacts; i++)
+        {
+            // Use <br/> instead of \n, output is in HTML
+            output_string = output_string + artifact_list[i] + "<br/>";
+            // For each artifact, loop through its array of categories
+            for (j = 0; j < response_cat_array[i].length; j++)
+            {
+                this_cat = response_cat_array[i];
+                output_string = output_string + map_category(this_cat[j]) + "<br/>";
+            }
+            output_string = output_string + "<br/>";
+        }
+
+        document.getElementById("my_text").innerHTML = output_string;        
+    }
+
+</script>
+
+</body>
+</html>
